@@ -75,33 +75,35 @@
 
     async function initializeApplication() {
         try {
+            // Membaca ID 2 dari Database Supabase
             const res2 = await supabaseClient
                 .from('video_settings')
                 .select('video_id')
                 .eq('id', 2)
-                .maybeSingle();[cite: 3]
+                .maybeSingle();
 
             if (res2.data && res2.data.video_id && res2.data.video_id !== 'contoh') {
-                currentVideoId2 = res2.data.video_id;[cite: 3]
+                currentVideoId2 = res2.data.video_id;
             }
 
         } catch (err) {
-            console.log("Membaca konfigurasi sinkronisasi cloud terhambat:", err);[cite: 3]
+            console.log("Membaca konfigurasi sinkronisasi cloud terhambat:", err);
         } finally {
             if (typeof YT !== 'undefined' && YT.loaded) {
                 onYouTubeIframeAPIReady();
             }
         }
 
+        // Sinkronisasi Realtime Perubahan Data ID 2
         supabaseClient
             .channel('schema-db-changes')
             .on(
                 'postgres_changes',
                 { event: '*', schema: 'public', table: 'video_settings' },
                 (payload) => {
-                    if (payload.new && payload.new.id === 2) {[cite: 3]
-                        currentVideoId2 = payload.new.video_id;[cite: 3]
-                        setupSinglePlayer(currentVideoId2);[cite: 3]
+                    if (payload.new && payload.new.id === 2) {
+                        currentVideoId2 = payload.new.video_id;
+                        setupSinglePlayer(currentVideoId2);
                     }
                 }
             )
@@ -109,10 +111,10 @@
     }
 
     function onYouTubeIframeAPIReady() {
-        setupSinglePlayer(currentVideoId2);[cite: 3]
+        setupSinglePlayer(currentVideoId2);
     }
 
-    // Fungsi mematikan CC/Subtitle secara paksa (Disamakan dengan Layar 1)
+    // Fungsi mematikan CC/Subtitle secara paksa
     function forceDisableCC(targetPlayer) {
         if (!targetPlayer) return;
         try {
@@ -145,7 +147,7 @@
                 targetPlayer.setOption('vq', 'hd1080');
             }
 
-            // 3. Batasi jangkauan resolusi agar tidak diizinkan melorot ke resolusi rendah (Pengunci utama)
+            // 3. Batasi jangkauan resolusi agar tidak diizinkan melorot ke resolusi rendah
             if (targetPlayer.getPlaybackQuality() !== 'hd1080' && typeof targetPlayer.setPlaybackQualityRange === 'function') {
                 targetPlayer.setPlaybackQualityRange('hd1080', 'hd1080');
             }
@@ -178,7 +180,7 @@
                 player2.playVideo();
             }, 500);
         } else {
-            player2 = new YT.Player('player2', {[cite: 3]
+            player2 = new YT.Player('player2', {
                 height: '100%',
                 width: '100%',
                 videoId: videoId,
@@ -190,7 +192,7 @@
                     'controls': 1,      
                     'rel': 0,
                     'modestbranding': 1,
-                    'fs': 1,            /* Mengizinkan tombol fullscreen bawaan player */
+                    'fs': 1,            
                     'iv_load_policy': 3,
                     'vq': 'hd1080',      
                     'cc_load_policy': 0, 
