@@ -42,9 +42,7 @@
             left: 0;
             width: 100%;
             height: calc(100% + 120px);
-        }
-        .hidden {
-            display: none !important;
+            border: none;
         }
     </style>
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
@@ -54,21 +52,17 @@
 <!-- === KONTEN UTAMA === -->
 <div id="mainContent" class="fullscreen-container">
     <div id="playerWrapper" class="video-wrapper">
-        <div id="player2"></div>
+        <!-- Kontainer dinamis, Iframe akan digenerate dari JS untuk membersihkan cache resolusi -->
+        <div id="playerContainer"></div>
     </div>
 </div>
-
-<script src="https://www.youtube.com/iframe_api"></script>
 
 <script>
     const SUPABASE_URL = "https://zrycfquuqcygftngkwku.supabase.co"; 
     const SUPABASE_KEY = "sb_publishable_D7uzajVgAFW_8EC5hQp57g_IBiyAHYO"; 
     
     const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
-
-    let player2;
     let currentVideoId2 = 'bRNlrdfKNd4'; 
-    let loopQualityInterval = null;
 
     window.onload = function() {
         initializeApplication();
@@ -85,15 +79,13 @@
             if (res2.data && res2.data.video_id && res2.data.video_id !== 'contoh') {
                 currentVideoId2 = res2.data.video_id;
             }
-
         } catch (err) {
             console.log("Membaca konfigurasi sinkronisasi cloud terhambat:", err);
         } finally {
-            if (typeof YT !== 'undefined' && YT.loaded) {
-                onYouTubeIframeAPIReady();
-            }
+            renderHardcodedPlayer(currentVideoId2);
         }
 
+        // Realtime Sync
         supabaseClient
             .channel('schema-db-changes')
             .on(
@@ -102,162 +94,46 @@
                 (payload) => {
                     if (payload.new && payload.new.id === 2) {
                         currentVideoId2 = payload.new.video_id;
-                        setupSinglePlayer(currentVideoId2);
+                        renderHardcodedPlayer(currentVideoId2);
                     }
                 }
             )
             .subscribe();
     }
 
-    function onYouTubeIframeAPIReady() {
-        setupSinglePlayer(currentVideoId2);
-    }
-
-    function forceDisableCC(targetPlayer) {
-        if (!targetPlayer) return;
-        try {
-            if (typeof targetPlayer.unloadModule === 'function') {
-                targetPlayer.unloadModule('captions');
-            }
-            if (typeof targetPlayer.setOption === 'function') {
-                targetPlayer.setOption('captions', 'track', {});
-            }
-        } catch(e) {
-            console.log("CC Unload skip:", e);
-        }
-    }
-
-    // TOTAL BYPASS LOOP: Memaksa menghancurkan status 'Auto' secara berkala tanpa henti
-    function aggressiveForce1080p(targetPlayer) {
-        if (!targetPlayer) return;
-        try {
-            // 1. Ambil kualitas yang ada saat ini
-            let currentQuality = "";
-            if (typeof targetPlayer.getPlaybackQuality === 'function') {
-                currentQuality = targetPlayer.getPlaybackQuality();
-            }
-
-            // Jika belum di posisi 1080p, tembak secara beruntun menggunakan seluruh API internal yang tersedia
-            if (currentQuality !== 'hd1080') {
-                if (typeof targetPlayer.setPlaybackQuality === 'function') {
-                    targetPlayer.setPlaybackQuality('hd1080');
-                }
-                if (typeof targetPlayer.setPlaybackQualityRange === 'function') {
-                    targetPlayer.setPlaybackQualityRange('hd1080', 'hd1080');
-                }
-                if (typeof targetPlayer.setOption === 'function') {
-                    targetPlayer.setOption('playbackQuality', 'hd1080');
-                    targetPlayer.setOption('vq', 'hd1080');
-                }
-                
-                // Trik manipulasi manual muatan pemutar video
-                let iframe = document.getElementById('player2');
-                if (iframe && iframe.contentWindow) {
-                    iframe.contentWindow.postMessage(JSON.stringify({
-                        event: 'command',
-                        func: 'setPlaybackQuality',
-                        args: ['hd1080']
-                    }), '*');
-                }
-            }
-        } catch(e) {
-            console.log("Gagal menembus proteksi kualitas:", e);
-        }
-    }
-
-    // Mengaktifkan loop pengecekan kualitas tanpa henti
-    function startQualityEnforcer(targetPlayer) {
-        if (loopQualityInterval) clearInterval(loopQualityInterval);
-        
-        loopQualityInterval = setInterval(() => {
-            if (targetPlayer && typeof targetPlayer.getPlayerState === 'function') {
-                let state = targetPlayer.getPlayerState();
-                // Jalankan pemaksaan hanya ketika video sedang dalam kondisi memutar (PLAYING)
-                if (state === 1) {
-                    aggressiveForce1080p(targetPlayer);
-                    forceDisableCC(targetPlayer);
-                }
-            }
-        }, 2000); // Mengecek dan memaksa ulang setiap 2 detik
-    }
-
-    function setupSinglePlayer(videoId) {
+    // BYPASS METODE: Menghancurkan DOM lama dan menyuntikkan manifes paksa lewat URL Embed
+    function renderHardcodedPlayer(videoId) {
         if (!videoId) return;
 
-        if (player2 && typeof player2.loadVideoById === 'function') {
-            player2.loadVideoById({
-                videoId: videoId,
-                startSeconds: 0,
-                suggestedQuality: 'hd1080'
-            });
-            
-            // Bombardir langsung di awal pemuatan video baru
-            let retryCount = 0;
-            const qualityInterval = setInterval(() => {
-                aggressiveForce1080p(player2);
-                forceDisableCC(player2);
-                retryCount++;
-                if (retryCount > 10) {
-                    clearInterval(qualityInterval);
-                    startQualityEnforcer(player2); // Alihkan ke pemantau jangka panjang
-                }
-            }, 500);
+        const container = document.getElementById('playerContainer');
+        if (!container) return;
 
-            setTimeout(() => {
-                player2.mute();
-                player2.playVideo();
-            }, 500);
-        } else {
-            player2 = new YT.Player('player2', {
-                height: '100%',
-                width: '100%',
-                videoId: videoId,
-                playerVars: {
-                    'autoplay': 1,
-                    'loop': 1,
-                    'playlist': videoId,
-                    'mute': 1,          
-                    'controls': 1,      
-                    'rel': 0,
-                    'modestbranding': 1,
-                    'fs': 1,            
-                    'iv_load_policy': 3,
-                    'vq': 'hd1080',      
-                    'cc_load_policy': 0, 
-                    'cc_lang_pref': 'none'
-                },
-                events: {
-                    'onReady': (event) => {
-                        event.target.mute();
-                        event.target.playVideo();
-                        
-                        let retryCount = 0;
-                        const readyInterval = setInterval(() => {
-                            aggressiveForce1080p(event.target);
-                            forceDisableCC(event.target);
-                            retryCount++;
-                            if (retryCount > 10) {
-                                clearInterval(readyInterval);
-                                startQualityEnforcer(event.target); // Jalankan loop penegak kualitas
-                            }
-                        }, 500);
+        // Kosongkan kontainer untuk membuang memori "Auto Resolution" bawaan sesi sebelumnya
+        container.innerHTML = '';
 
-                        setTimeout(() => {
-                            if (event.target.getPlayerState() !== 1) event.target.playVideo();
-                        }, 1000);
-                    },
-                    'onStateChange': (event) => {
-                        if (event.data === YT.PlayerState.PLAYING) {
-                            aggressiveForce1080p(event.target);
-                            forceDisableCC(event.target);
-                        }
-                        if (event.data === YT.PlayerState.ENDED) {
-                            event.target.playVideo();
-                        }
-                    }
-                }
-            });
-        }
+        // Membuat element Iframe murni dengan query string bypass bandwidth cerdas
+        const iframe = document.createElement('iframe');
+        iframe.id = "player2";
+        iframe.width = "100%";
+        iframe.height = "100%";
+        iframe.allow = "autoplay; fullscreen";
+        
+        // Menggunakan kombinasi parameter vq=hd1080, playlist pembatas, dan parameter HTML5 paksa
+        iframe.src = `https://www.youtube.com/embed/${videoId}?` + 
+                     `autoplay=1` +
+                     `&loop=1` +
+                     `&playlist=${videoId}` +
+                     `&mute=1` +
+                     `&controls=1` +
+                     `&fs=1` +             // Fullscreen bawaan diaktifkan
+                     `&rel=0` +
+                     `&modestbranding=1` +
+                     `&iv_load_policy=3` +
+                     `&vq=hd1080` +        // Injeksi parameter kualitas dasar tingkat tinggi
+                     `&html5=1` +          // Paksa engine HTML5 player murni
+                     `&cc_load_policy=0`;
+
+        container.appendChild(iframe);
     }
 </script>
 
