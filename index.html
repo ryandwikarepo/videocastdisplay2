@@ -1,0 +1,242 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pemutar Video 2 - Monitor Fullscreen Tanpa Password</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            background-color: #000;
+            font-family: Arial, sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            color: #fff;
+            overflow: hidden; 
+        }
+
+        /* === STYLE KONTEN UTAMA FULLSCREEN === */
+        .fullscreen-container {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            background-color: #000;
+            z-index: 10;
+        }
+        .video-wrapper {
+            position: relative;
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+        }
+        /* Trik memotong area hitam atas-bawah bawaan YouTube agar terlihat benar-benar bersih */
+        .video-wrapper iframe {
+            position: absolute;
+            top: -60px;
+            left: 0;
+            width: 100%;
+            height: calc(100% + 120px);
+        }
+
+        /* === TOMBOL FULLSCREEN MELAYANG === */
+        .fullscreen-btn {
+            position: absolute;
+            bottom: 20px;
+            right: 20px;
+            z-index: 99;
+            background: rgba(0, 0, 0, 0.6);
+            border: 1px solid rgba(255, 255, 255, 0.3);
+            color: white;
+            padding: 10px;
+            border-radius: 4px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            opacity: 0;
+            transition: opacity 0.3s ease, background 0.2s;
+        }
+        .fullscreen-btn:hover {
+            background: rgba(255, 0, 0, 0.8);
+            border-color: #ff0000;
+        }
+        .video-wrapper:hover .fullscreen-btn {
+            opacity: 1;
+        }
+        .fullscreen-btn svg {
+            width: 24px;
+            height: 24px;
+            fill: none;
+            stroke: currentColor;
+            stroke-width: 2;
+            stroke-linecap: round;
+            stroke-linejoin: round;
+        }
+        .hidden {
+            display: none !important;
+        }
+    </style>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+</head>
+<body>
+
+<!-- === KONTEN UTAMA === -->
+<div id="mainContent" class="fullscreen-container">
+    <div id="playerWrapper" class="video-wrapper">
+        <div id="player2"></div>
+        <button class="fullscreen-btn" onclick="toggleFullscreen('mainContent')" title="Layar Penuh">
+            <svg viewBox="0 0 24 24">
+                <path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"></path>
+            </svg>
+        </button>
+    </div>
+</div>
+
+<script src="https://www.youtube.com/iframe_api"></script>
+
+<script>
+    const SUPABASE_URL = "https://zrycfquuqcygftngkwku.supabase.co"; 
+    const SUPABASE_KEY = "sb_publishable_D7uzajVgAFW_8EC5hQp57g_IBiyAHYO"; 
+    
+    const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+    let player2;
+    let currentVideoId2 = 'bRNlrdfKNd4'; 
+
+    window.onload = function() {
+        initializeApplication();
+    };
+
+    async function initializeApplication() {
+        try {
+            // DIUBAH KHUSUS UNTUK MENERIMA DATA DARI PLAYER ID 2
+            const res2 = await supabaseClient
+                .from('video_settings')
+                .select('video_id')
+                .eq('id', 2)
+                .maybeSingle();
+
+            if (res2.data && res2.data.video_id && res2.data.video_id !== 'contoh') {
+                currentVideoId2 = res2.data.video_id;
+            }
+
+        } catch (err) {
+            console.log("Membaca konfigurasi sinkronisasi cloud terhambat:", err);
+        } finally {
+            if (typeof YT !== 'undefined' && YT.loaded) {
+                onYouTubeIframeAPIReady();
+            }
+        }
+
+        // Realtime Sync khusus memantau perubahan Player ID 2 saja
+        supabaseClient
+            .channel('schema-db-changes')
+            .on(
+                'postgres_changes',
+                { event: '*', schema: 'public', table: 'video_settings' },
+                (payload) => {
+                    if (payload.new && payload.new.id === 2) {
+                        currentVideoId2 = payload.new.video_id;
+                        setupSinglePlayer(currentVideoId2);
+                    }
+                }
+            )
+            .subscribe();
+    }
+
+    function onYouTubeIframeAPIReady() {
+        setupSinglePlayer(currentVideoId2);
+    }
+
+    function forceDisableCC(targetPlayer) {
+        if (!targetPlayer) return;
+        try {
+            if (typeof targetPlayer.unloadModule === 'function') {
+                targetPlayer.unloadModule('captions');
+            }
+            if (typeof targetPlayer.setOption === 'function') {
+                targetPlayer.setOption('captions', 'track', {});
+            }
+        } catch(e) {
+            console.log("CC Unload skip:", e);
+        }
+    }
+
+    function setupSinglePlayer(videoId) {
+        if (!videoId) return;
+
+        if (player2 && typeof player2.loadVideoById === 'function') {
+            player2.loadVideoById({
+                videoId: videoId,
+                startSeconds: 0,
+                suggestedQuality: 'hd1080'
+            });
+            setTimeout(() => {
+                player2.mute();
+                player2.setPlaybackQuality('hd1080');
+                forceDisableCC(player2);
+                player2.playVideo();
+            }, 500);
+        } else {
+            player2 = new YT.Player('player2', {
+                height: '100%',
+                width: '100%',
+                videoId: videoId,
+                playerVars: {
+                    'autoplay': 1,
+                    'loop': 1,
+                    'playlist': videoId,
+                    'mute': 1,          
+                    'controls': 1,      
+                    'rel': 0,
+                    'modestbranding': 1,
+                    'fs': 0,
+                    'iv_load_policy': 3,
+                    'vq': 'hd1080',
+                    'cc_load_policy': 0,
+                    'cc_lang_pref': 'none'
+                },
+                events: {
+                    'onReady': (event) => {
+                        event.target.mute();
+                        event.target.setPlaybackQuality('hd1080');
+                        forceDisableCC(event.target);
+                        event.target.playVideo();
+                        setTimeout(() => {
+                            if (event.target.getPlayerState() !== 1) event.target.playVideo();
+                        }, 1000);
+                    },
+                    'onStateChange': (event) => {
+                        if (event.data === YT.PlayerState.PLAYING) {
+                            event.target.setPlaybackQuality('hd1080');
+                            forceDisableCC(event.target);
+                        }
+                        if (event.data === YT.PlayerState.ENDED) {
+                            event.target.playVideo();
+                        }
+                    }
+                }
+            });
+        }
+    }
+
+    function toggleFullscreen(wrapperId) {
+        const elem = document.getElementById(wrapperId);
+        if (!document.fullscreenElement) {
+            if (elem.requestFullscreen) elem.requestFullscreen();
+            else if (elem.webkitRequestFullscreen) elem.webkitRequestFullscreen();
+            else if (elem.msRequestFullscreen) elem.msRequestFullscreen();
+        } else {
+            if (document.exitFullscreen) document.exitFullscreen();
+        }
+    }
+</script>
+
+</body>
+</html>
