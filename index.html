@@ -11,15 +11,13 @@
             background-color: #000;
             font-family: Arial, sans-serif;
             display: flex;
-            flex-direction: column;
             align-items: center;
             justify-content: center;
             min-height: 100vh;
-            color: #fff;
             overflow: hidden; 
         }
 
-        /* === STYLE KONTEN UTAMA === */
+        /* Kontainer utama tetap memenuhi layar penuh */
         .fullscreen-container {
             position: fixed;
             top: 0;
@@ -28,23 +26,26 @@
             height: 100vh;
             background-color: #000;
             z-index: 10;
+            display: flex;
+            align-items: center;
+            justify-content: center;
         }
+
+        /* TRIK UTAMA: Memaksa area video berukuran Full HD 1080p murni */
         .video-wrapper {
             position: relative;
-            width: 100%;
-            height: 100%;
-            overflow: hidden;
+            width: 1920px;
+            height: 1080px;
+            transform-origin: center center; /* Skala menyusut tepat di tengah */
         }
-        /* Trik memotong area hitam atas-bawah bawaan YouTube agar terlihat benar-benar bersih */
+
         .video-wrapper iframe {
             position: absolute;
-            top: -60px;
+            top: 0;
             left: 0;
             width: 100%;
-            height: calc(100% + 120px);
-        }
-        .hidden {
-            display: none !important;
+            height: 100%;
+            border: none;
         }
     </style>
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
@@ -53,6 +54,7 @@
 
 <!-- === KONTEN UTAMA === -->
 <div id="mainContent" class="fullscreen-container">
+    <!-- Ukuran pembungkus ini akan disesuaikan secara dinamis oleh JavaScript di bawah -->
     <div id="playerWrapper" class="video-wrapper">
         <div id="player2"></div>
     </div>
@@ -69,8 +71,29 @@
     let player2;
     let currentVideoId2 = 'bRNlrdfKNd4'; 
 
+    // Fungsi menghitung rasio agar ukuran 1920x1080 pas di monitor resolusi berapapun
+    function resizeVideoWrapper() {
+        const wrapper = document.getElementById('playerWrapper');
+        if (!wrapper) return;
+        
+        const windowWidth = window.innerWidth;
+        const windowHeight = window.innerHeight;
+        
+        // Hitung skala rasio terbaik
+        const scaleX = windowWidth / 1920;
+        const scaleY = windowHeight / 1080;
+        const scale = Math.max(scaleX, scaleY); // Gunakan Max untuk memenuhi layar (crop sedikit jika perlu)
+        
+        wrapper.style.transform = `scale(${scale})`;
+    }
+
     window.onload = function() {
         initializeApplication();
+        resizeVideoWrapper();
+    };
+
+    window.onresize = function() {
+        resizeVideoWrapper();
     };
 
     async function initializeApplication() {
@@ -112,7 +135,6 @@
         setupSinglePlayer(currentVideoId2);
     }
 
-    // Fungsi mematikan CC/Subtitle secara paksa
     function forceDisableCC(targetPlayer) {
         if (!targetPlayer) return;
         try {
@@ -127,26 +149,19 @@
         }
     }
 
-    // AGRESIF BYPASS: Memaksa menghancurkan status 'Auto' bawaan YouTube dan mengunci ke 1080p
     function aggressiveForce1080p(targetPlayer) {
         if (!targetPlayer) return;
         try {
-            // 1. Cek apakah video tersebut mendukung resolusi 1080p
             if (typeof targetPlayer.getAvailableQualityLevels === 'function') {
                 const qualities = targetPlayer.getAvailableQualityLevels();
                 if (qualities.includes('hd1080')) {
-                    // Paksa set lewat API standar
                     targetPlayer.setPlaybackQuality('hd1080');
                 }
             }
-            
-            // 2. Tembak menggunakan opsi penyiaran internal (Bypass mode otomatis)
             if (typeof targetPlayer.setOption === 'function') {
                 targetPlayer.setOption('playbackQuality', 'hd1080');
                 targetPlayer.setOption('vq', 'hd1080');
             }
-
-            // 3. Trik manipulasi muatan data agar player menganggap track auto telah mati
             if (targetPlayer.getPlaybackQuality() !== 'hd1080' && typeof targetPlayer.setPlaybackQualityRange === 'function') {
                 targetPlayer.setPlaybackQualityRange('hd1080', 'hd1080');
             }
@@ -165,7 +180,6 @@
                 suggestedQuality: 'hd1080'
             });
             
-            // Lakukan pemboman perintah secara berkala selama 5 detik awal video berjalan
             let retryCount = 0;
             const qualityInterval = setInterval(() => {
                 aggressiveForce1080p(player2);
@@ -202,7 +216,6 @@
                         event.target.mute();
                         event.target.playVideo();
                         
-                        // Eksekusi pemaksaan berlapis sesaat setelah player siap
                         let retryCount = 0;
                         const readyInterval = setInterval(() => {
                             aggressiveForce1080p(event.target);
@@ -216,7 +229,6 @@
                         }, 1000);
                     },
                     'onStateChange': (event) => {
-                        // Kunci ulang resolusi setiap kali status video beralih ke PLAYING (mencegah auto turun di tengah jalan)
                         if (event.data === YT.PlayerState.PLAYING) {
                             aggressiveForce1080p(event.target);
                             forceDisableCC(event.target);
