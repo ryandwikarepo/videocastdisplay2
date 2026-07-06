@@ -19,7 +19,7 @@
             overflow: hidden; 
         }
 
-        /* === STYLE KONTEN UTAMA FULLSCREEN === */
+        /* === STYLE KONTEN UTAMA === */
         .fullscreen-container {
             position: fixed;
             top: 0;
@@ -43,41 +43,6 @@
             width: 100%;
             height: calc(100% + 120px);
         }
-
-        /* === TOMBOL FULLSCREEN MELAYANG === */
-        .fullscreen-btn {
-            position: absolute;
-            bottom: 20px;
-            right: 20px;
-            z-index: 99;
-            background: rgba(0, 0, 0, 0.6);
-            border: 1px solid rgba(255, 255, 255, 0.3);
-            color: white;
-            padding: 10px;
-            border-radius: 4px;
-            cursor: pointer;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            opacity: 0;
-            transition: opacity 0.3s ease, background 0.2s;
-        }
-        .fullscreen-btn:hover {
-            background: rgba(255, 0, 0, 0.8);
-            border-color: #ff0000;
-        }
-        .video-wrapper:hover .fullscreen-btn {
-            opacity: 1;
-        }
-        .fullscreen-btn svg {
-            width: 24px;
-            height: 24px;
-            fill: none;
-            stroke: currentColor;
-            stroke-width: 2;
-            stroke-linecap: round;
-            stroke-linejoin: round;
-        }
         .hidden {
             display: none !important;
         }
@@ -90,11 +55,6 @@
 <div id="mainContent" class="fullscreen-container">
     <div id="playerWrapper" class="video-wrapper">
         <div id="player2"></div>
-        <button class="fullscreen-btn" onclick="toggleFullscreen('mainContent')" title="Layar Penuh">
-            <svg viewBox="0 0 24 24">
-                <path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"></path>
-            </svg>
-        </button>
     </div>
 </div>
 
@@ -115,7 +75,6 @@
 
     async function initializeApplication() {
         try {
-            // DIUBAH KHUSUS UNTUK MENERIMA DATA DARI PLAYER ID 2
             const res2 = await supabaseClient
                 .from('video_settings')
                 .select('video_id')
@@ -134,7 +93,6 @@
             }
         }
 
-        // Realtime Sync khusus memantau perubahan Player ID 2 saja
         supabaseClient
             .channel('schema-db-changes')
             .on(
@@ -154,6 +112,7 @@
         setupSinglePlayer(currentVideoId2);
     }
 
+    // Fungsi mematikan CC/Subtitle secara paksa
     function forceDisableCC(targetPlayer) {
         if (!targetPlayer) return;
         try {
@@ -168,6 +127,33 @@
         }
     }
 
+    // AGRESIF BYPASS: Memaksa menghancurkan status 'Auto' bawaan YouTube dan mengunci ke 1080p
+    function aggressiveForce1080p(targetPlayer) {
+        if (!targetPlayer) return;
+        try {
+            // 1. Cek ketersediaan resolusi hd1080
+            if (typeof targetPlayer.getAvailableQualityLevels === 'function') {
+                const qualities = targetPlayer.getAvailableQualityLevels();
+                if (qualities.includes('hd1080')) {
+                    targetPlayer.setPlaybackQuality('hd1080');
+                }
+            }
+            
+            // 2. Suntik opsi penyiaran internal video player
+            if (typeof targetPlayer.setOption === 'function') {
+                targetPlayer.setOption('playbackQuality', 'hd1080');
+                targetPlayer.setOption('vq', 'hd1080');
+            }
+
+            // 3. Batasi jangkauan resolusi agar tidak diizinkan melorot ke resolusi rendah
+            if (targetPlayer.getPlaybackQuality() !== 'hd1080' && typeof targetPlayer.setPlaybackQualityRange === 'function') {
+                targetPlayer.setPlaybackQualityRange('hd1080', 'hd1080');
+            }
+        } catch(e) {
+            console.log("Gagal menembus proteksi kualitas:", e);
+        }
+    }
+
     function setupSinglePlayer(videoId) {
         if (!videoId) return;
 
@@ -177,10 +163,18 @@
                 startSeconds: 0,
                 suggestedQuality: 'hd1080'
             });
+            
+            // Eksekusi pemboman kualitas secara berkala selama 5 detik pertama (Pergantian Video)
+            let retryCount = 0;
+            const qualityInterval = setInterval(() => {
+                aggressiveForce1080p(player2);
+                forceDisableCC(player2);
+                retryCount++;
+                if (retryCount > 10) clearInterval(qualityInterval); 
+            }, 500);
+
             setTimeout(() => {
                 player2.mute();
-                player2.setPlaybackQuality('hd1080');
-                forceDisableCC(player2);
                 player2.playVideo();
             }, 500);
         } else {
@@ -196,25 +190,34 @@
                     'controls': 1,      
                     'rel': 0,
                     'modestbranding': 1,
-                    'fs': 0,
+                    'fs': 1,            /* DIAKTIFKAN: Mengizinkan tombol fullscreen bawaan player */
                     'iv_load_policy': 3,
-                    'vq': 'hd1080',
-                    'cc_load_policy': 0,
+                    'vq': 'hd1080',      
+                    'cc_load_policy': 0, 
                     'cc_lang_pref': 'none'
                 },
                 events: {
                     'onReady': (event) => {
                         event.target.mute();
-                        event.target.setPlaybackQuality('hd1080');
-                        forceDisableCC(event.target);
                         event.target.playVideo();
+                        
+                        // Eksekusi pemaksaan berlapis sesaat setelah player siap (Load Awal)
+                        let retryCount = 0;
+                        const readyInterval = setInterval(() => {
+                            aggressiveForce1080p(event.target);
+                            forceDisableCC(event.target);
+                            retryCount++;
+                            if (retryCount > 10) clearInterval(readyInterval);
+                        }, 500);
+
                         setTimeout(() => {
                             if (event.target.getPlayerState() !== 1) event.target.playVideo();
                         }, 1000);
                     },
                     'onStateChange': (event) => {
+                        // Kunci ulang resolusi setiap kali status video beralih ke PLAYING
                         if (event.data === YT.PlayerState.PLAYING) {
-                            event.target.setPlaybackQuality('hd1080');
+                            aggressiveForce1080p(event.target);
                             forceDisableCC(event.target);
                         }
                         if (event.data === YT.PlayerState.ENDED) {
@@ -223,17 +226,6 @@
                     }
                 }
             });
-        }
-    }
-
-    function toggleFullscreen(wrapperId) {
-        const elem = document.getElementById(wrapperId);
-        if (!document.fullscreenElement) {
-            if (elem.requestFullscreen) elem.requestFullscreen();
-            else if (elem.webkitRequestFullscreen) elem.webkitRequestFullscreen();
-            else if (elem.msRequestFullscreen) elem.msRequestFullscreen();
-        } else {
-            if (document.exitFullscreen) document.exitFullscreen();
         }
     }
 </script>
